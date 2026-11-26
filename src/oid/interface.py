@@ -24,9 +24,9 @@ Chain format (pandas DataFrame, one row per option):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -39,6 +39,7 @@ CHAIN_COLUMNS = ["strike", "option_type", "bid", "ask", "mid"]
 # Objects passed between functions
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SVIParams:
     """Raw SVI parameters for one expiry.
@@ -48,6 +49,7 @@ class SVIParams:
     Constraints: b >= 0, |rho| < 1, sigma > 0, a + b * sigma * sqrt(1 - rho**2) >= 0.
     T is stored so that w can be turned back into implied vols.
     """
+
     a: float
     b: float
     rho: float
@@ -61,36 +63,38 @@ class DensityResult:
     """Output of run_pipeline for one snapshot (one chain, one expiry).
     This is what part B uses for H1 and H2.
     """
+
     # snapshot
-    as_of: datetime            # tz-aware time of the snapshot
-    expiry: datetime           # tz-aware expiry time
-    T: float                   # years
-    F: float                   # forward, index points
-    D: float                   # discount factor exp(-rT)
+    as_of: datetime  # tz-aware time of the snapshot
+    expiry: datetime  # tz-aware expiry time
+    T: float  # years
+    F: float  # forward, index points
+    D: float  # discount factor exp(-rT)
 
     # density of x = ln(S_T / F)
-    k_grid: np.ndarray         # increasing grid of k
-    q: np.ndarray              # q(k) on k_grid, integrates to ~1
-    cdf: Callable              # cdf(k) = Q(x <= k), any k, values strictly in (0, 1)
-    sf: Callable               # sf(k) = Q(x > k), computed directly (not 1 - cdf)
-    ppf: Optional[Callable]    # inverse cdf, ppf(p) -> k (optional, for quantiles / IQR)
+    k_grid: np.ndarray  # increasing grid of k
+    q: np.ndarray  # q(k) on k_grid, integrates to ~1
+    cdf: Callable  # cdf(k) = Q(x <= k), any k, values strictly in (0, 1)
+    sf: Callable  # sf(k) = Q(x > k), computed directly (not 1 - cdf)
+    ppf: Callable | None  # inverse cdf, ppf(p) -> k (optional, for quantiles / IQR)
 
     # market data
-    atm_quotes: pd.DataFrame   # 2 rows, the strikes just below and just above F
-                               # columns: strike, call_bid, call_ask, call_mid,
-                               #          put_bid, put_ask, put_mid
-    k_min_quoted: float        # smallest k actually used in the SVI fit
-    k_max_quoted: float        # largest k actually used in the SVI fit
+    atm_quotes: pd.DataFrame  # 2 rows, the strikes just below and just above F
+    # columns: strike, call_bid, call_ask, call_mid,
+    #          put_bid, put_ask, put_mid
+    k_min_quoted: float  # smallest k actually used in the SVI fit
+    k_max_quoted: float  # largest k actually used in the SVI fit
 
     # fit quality
     svi_params: SVIParams
-    svi_rmse_iv: float         # RMSE fitted vs market implied vol (0.01 = 1 vol point)
-    g_min: float               # min of g(k) on k_grid, must be >= 0 (no butterfly arbitrage)
-    mass_in_grid: float        # integral of q over k_grid, should be close to 1
-    n_quotes: int              # number of OTM quotes used in the fit
+    svi_rmse_iv: float  # RMSE fitted vs market implied vol (0.01 = 1 vol point)
+    g_min: float  # min of g(k) on k_grid, must be >= 0 (no butterfly arbitrage)
+    mass_in_grid: float  # integral of q over k_grid, should be close to 1
+    n_quotes: int  # number of OTM quotes used in the fit
 
-    def is_ok(self, max_rmse_iv: float = 0.01, min_mass: float = 0.999,
-              g_tol: float = 1e-8) -> bool:
+    def is_ok(
+        self, max_rmse_iv: float = 0.01, min_mass: float = 0.999, g_tol: float = 1e-8
+    ) -> bool:
         """True if svi_rmse_iv <= max_rmse_iv, mass_in_grid >= min_mass and
         g_min >= -g_tol. Default thresholds are proposals, to agree with B."""
         raise NotImplementedError
@@ -100,14 +104,16 @@ class DensityResult:
 # Chain preparation
 # ---------------------------------------------------------------------------
 
+
 def time_to_expiry(as_of: datetime, expiry: datetime) -> float:
     """T in years (calendar time) between two tz-aware datetimes.
     Raises ValueError if a datetime is naive or if expiry <= as_of."""
     raise NotImplementedError
 
 
-def clean_chain(chain: pd.DataFrame, max_rel_spread: float = 0.5,
-                min_bid: float = 0.0) -> pd.DataFrame:
+def clean_chain(
+    chain: pd.DataFrame, max_rel_spread: float = 0.5, min_bid: float = 0.0
+) -> pd.DataFrame:
     """Remove bad quotes: missing / zero bids, ask < bid, spreads wider than
     max_rel_spread * mid, duplicated strikes. Returns a chain with the same columns."""
     raise NotImplementedError
@@ -125,8 +131,9 @@ def atm_quotes(chain: pd.DataFrame, F: float) -> pd.DataFrame:
     raise NotImplementedError
 
 
-def implied_vols(chain: pd.DataFrame, F: float, r: float, T: float,
-                 weighting: str = "inv_spread") -> pd.DataFrame:
+def implied_vols(
+    chain: pd.DataFrame, F: float, r: float, T: float, weighting: str = "inv_spread"
+) -> pd.DataFrame:
     """Black-76 implied vols of OTM options only (puts for K < F, calls for K >= F).
     Returns a DataFrame with columns: strike, k, option_type, mid, iv, w, weight.
     iv is annualised, w = iv**2 * T. weight is used in the SVI fit:
@@ -137,6 +144,7 @@ def implied_vols(chain: pd.DataFrame, F: float, r: float, T: float,
 # ---------------------------------------------------------------------------
 # SVI
 # ---------------------------------------------------------------------------
+
 
 def fit_svi(k: np.ndarray, w: np.ndarray, weights: np.ndarray, T: float) -> SVIParams:
     """Weighted least-squares fit of raw SVI to total variance w(k)."""
@@ -164,7 +172,10 @@ def svi_g(params: SVIParams, k: ArrayLike) -> np.ndarray:
 # Density
 # ---------------------------------------------------------------------------
 
-def make_k_grid(params: SVIParams, n_sd: float = 10.0, n_points: int = 2001) -> np.ndarray:
+
+def make_k_grid(
+    params: SVIParams, n_sd: float = 10.0, n_points: int = 2001
+) -> np.ndarray:
     """Uniform k grid of +/- n_sd ATM standard deviations (sqrt(w(0)))."""
     raise NotImplementedError
 
@@ -190,10 +201,18 @@ def svi_cdf(params: SVIParams, k: ArrayLike) -> np.ndarray:
 # Full pipeline
 # ---------------------------------------------------------------------------
 
-def run_pipeline(chain: pd.DataFrame, as_of: datetime, expiry: datetime, r: float,
-                 max_rel_spread: float = 0.5, min_bid: float = 0.0,
-                 weighting: str = "inv_spread", n_sd: float = 10.0,
-                 n_points: int = 2001) -> DensityResult:
+
+def run_pipeline(
+    chain: pd.DataFrame,
+    as_of: datetime,
+    expiry: datetime,
+    r: float,
+    max_rel_spread: float = 0.5,
+    min_bid: float = 0.0,
+    weighting: str = "inv_spread",
+    n_sd: float = 10.0,
+    n_points: int = 2001,
+) -> DensityResult:
     """chain -> clean -> F -> IVs -> SVI -> density, cdf, sf, flags.
     as_of and expiry must be tz-aware. r annual, continuously compounded.
     The optional arguments are passed to clean_chain, implied_vols and make_k_grid;
@@ -205,10 +224,22 @@ def run_pipeline(chain: pd.DataFrame, as_of: datetime, expiry: datetime, r: floa
 # Synthetic data (validation)
 # ---------------------------------------------------------------------------
 
-def make_synthetic_chain(model: dict, strikes: np.ndarray, as_of: datetime,
-                         expiry: datetime, r: float, noise: float,
-                         seed: int = 0) -> tuple[pd.DataFrame, Callable]:
+
+def make_synthetic_chain(
+    model: dict,
+    strikes: np.ndarray,
+    as_of: datetime,
+    expiry: datetime,
+    r: float,
+    noise: float,
+    seed: int = 0,
+) -> tuple[pd.DataFrame, Callable]:
     """Price a chain under a known model and add quote noise.
+
+    model: e.g. {"name": "bs", "S0": 5000.0, "sigma": 0.15, "div_yield": 0.0}
+    noise: s.d. of the noise added to the mid prices, index points.
+    Returns (chain, true_density) where true_density(k) is the exact q(k)."""
+    raise NotImplementedError
 
     model: e.g. {"name": "bs", "S0": 5000.0, "sigma": 0.15, "div_yield": 0.0}
     noise: s.d. of the noise added to the mid prices, index points.
